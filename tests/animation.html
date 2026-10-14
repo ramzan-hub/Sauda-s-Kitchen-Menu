@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sauda's Kitchen — animation regression checks</title>
+<style>body{background:#171714;color:#f2eee7;font:14px/1.6 monospace;margin:24px}button{padding:12px}iframe{display:block;border:1px solid #555;margin-top:20px;max-width:none}pre{white-space:pre-wrap}</style>
+<h1>Animation regression checks</h1>
+<p>Development fixture only. Touch events and reduced-motion preference changes are simulated; these checks do not measure physical-device performance or emulate the CSS media query.</p>
+<button id="run">Run checks</button>
+<pre id="results" role="status">Ready.</pre>
+<iframe title="Menu test fixture" width="390" height="844"></iframe>
+<script>
+'use strict';
+const frame = document.querySelector('iframe');
+const output = document.querySelector('#results');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function until(predicate, message) {
+  for (let i = 0; i < 150; i++) {
+    if (predicate()) return;
+    await sleep(20);
+  }
+  throw new Error(message);
+}
+document.querySelector('#run').onclick = async event => {
+  event.target.disabled = true;
+  output.textContent = 'Running…\n';
+  const assert = (condition, message) => {
+    if (!condition) throw new Error(message);
+    output.textContent += `PASS ${message}\n`;
+  };
+  try {
+    const source = await (await fetch('../index.html')).text();
+    // The test fixture supplies a controllable JS media preference before the
+    // unchanged production script runs; no test hooks enter the shipped menu.
+    const preferenceFixture = `<script>
+      const realMatchMedia = window.matchMedia.bind(window);
+      const reduce = { matches: false, listeners: [], addEventListener(type, listener) { this.listeners.push(listener); } };
+      window.matchMedia = query => query === '(prefers-reduced-motion: reduce)' ? reduce : realMatchMedia(query);
+      window.setTestReducedMotion = matches => { reduce.matches = matches; reduce.listeners.forEach(listener => listener()); };
+    <\/script>`;
+    frame.srcdoc = source.replace('<head>', `<head><base href="${new URL('../', location.href)}">${preferenceFixture}`);
+    await new Promise(resolve => frame.onload = resolve);
+    const win = frame.contentWindow;
+    const doc = win.document;
+    const stage = doc.querySelector('.plate-stage');
+    const main = doc.querySelector('main');
+    const visiblePlate = () => doc.querySelector('.plate-slot:not([hidden]) img');
+    const ambient = image => image.getAnimations().find(animation => animation.id === 'ambient-plate-rotation');
+    const settled = () => !main.hasAttribute('aria-busy') && [...doc.querySelectorAll('.plate-slot')].filter(slot => !slot.hidden).length === 1;
+    const select = async index => {
+      doc.querySelectorAll('.dish-button')[index].click();
+      await until(() => doc.querySelector('#dish-number').textContent === String(index + 1).padStart(2, '0') && settled(), 'Navigation did not settle');
+    };
+    await until(() => doc.querySelectorAll('.dish-button').length === 10 && visiblePlate().complete, 'Initialization failed');
+    let rotation = ambient(visiblePlate());
+    assert(rotation.playState === 'running', 'First plate rotates without interaction on mobile');
+    assert(rotation.effect.getTiming().duration === 30000, 'Ambient revolution is 30 seconds');
+    const startTime = rotation.currentTime;
+    await sleep(120);
+    assert(rotation.currentTime > startTime, 'Ambient rotation advances automatically');
+    stage.dispatchEvent(new win.PointerEvent('pointermove', { pointerType: 'mouse' }));
+    assert(rotation.playState === 'running', 'Mobile layout ignores sticky mouse hover');
+    frame.width = '1440';
+    await sleep(80);
+    stage.dispatchEvent(new win.PointerEvent('pointermove', { pointerType: 'mouse' }));
+    if (win.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      assert(rotation.playState === 'paused', 'Desktop pointer pauses ambient rotation');
+      // WAAPI pause is committed on the next rendering frame, not synchronously.
+      await sleep(50);
+      const pausedTime = rotation.currentTime;
+      await sleep(120);
+      assert(rotation.currentTime === pausedTime, 'Hover holds the rotation angle');
+      stage.dispatchEvent(new win.PointerEvent('pointerleave', { pointerType: 'mouse' }));
+      await sleep(120);
+      assert(rotation.playState === 'running' && rotation.currentTime > pausedTime, 'Mouse leave resumes the same animation');
+    }
+    frame.width = '390';
+    await sleep(80);
+    for (let i = 1; i < 10; i++) {
+      await select(i);
+      assert(visiblePlate().naturalWidth > 0 && ambient(visiblePlate()).playState === 'running', `Dish ${i + 1} loads and rotates after rolling`);
+      const wrapper = visiblePlate().closest('.plate-slot');
+      const matrix = new win.DOMMatrix(win.getComputedStyle(wrapper).transform);
+      assert(Math.abs(matrix.m41) < .01 && Math.abs(matrix.m42) < .01, `Dish ${i + 1} settles exactly at center`);
+    }
+    doc.querySelector('#next').click();
+    doc.querySelector('#next').click();
+    doc.querySelector('#next').click();
+    await until(() => doc.querySelector('#dish-number').textContent === '03' && settled(), 'Rapid navigation failed');
+    assert(ambient(visiblePlate()).playState === 'running', 'Rapid wrapped navigation leaves one rotating plate');
+    // Synthetic Pointer Events exercise the ONE production recognizer, without
+    // claiming native touchscreen emulation or real-device testing.
+    let pointerId = 10;
+    const pointer = (type, x, y, id = pointerId) => stage.dispatchEvent(new win.PointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y, bubbles: true }));
+    const swipe = (from, to) => {
+      pointerId++;
+      pointer('pointerdown', from, 200);
+      pointer('pointermove', to, 200);
+      pointer('pointerup', to, 200);
+    };
+    swipe(230, 190); swipe(230, 190); swipe(230, 190);
+    await until(() => doc.querySelector('#dish-number').textContent === '05' && settled(), 'Latest swipe intent was lost');
+    assert(doc.querySelector('#dish-number').textContent === '05', 'Rapid swipes retain one latest destination without a backlog');
+    swipe(120, 160);
+    await until(() => doc.querySelector('#dish-number').textContent === '04' && settled(), 'Backward swipe failed');
+    assert(doc.querySelector('#dish-number').textContent === '04', 'Right swipe navigates backward');
+    swipe(220, 214);
+    await sleep(80);
+    assert(doc.querySelector('#dish-number').textContent === '04', 'Small accidental movement is ignored');
+    pointerId++;
+    pointer('pointerdown', 200, 200); pointer('pointermove', 215, 250); pointer('pointerup', 80, 320);
+    assert(doc.querySelector('#dish-number').textContent === '04', 'Vertical gesture remains vertical and does not navigate');
+    assert(win.getComputedStyle(stage).touchAction.includes('pan-y'), 'Native vertical scrolling is permitted by touch-action');
+    pointerId++;
+    pointer('pointerdown', 230, 200); pointer('pointerdown', 220, 200, pointerId + 1);
+    pointer('pointermove', 100, 200); pointer('pointerup', 100, 200); pointer('pointerup', 100, 200, pointerId + 1);
+    assert(doc.querySelector('#dish-number').textContent === '04', 'Multitouch gesture is ignored');
+    pointerId++;
+    pointer('pointerdown', 230, 200); await sleep(35); pointer('pointerup', 205, 200);
+    await until(() => doc.querySelector('#dish-number').textContent === '05' && settled(), 'Short fast flick failed');
+    assert(doc.querySelector('#dish-number').textContent === '05', 'Velocity recognizes a short deliberate flick');
+    doc.querySelector('#ingredients-toggle').click();
+    await until(() => doc.querySelector('.mobile-ingredient-hotspots').classList.contains('is-visible'), 'Hotspots did not appear');
+    const hotspotButtons = () => [...doc.querySelectorAll('.ingredient-hotspot')];
+    assert(doc.querySelector('#ingredient-panel').hidden && doc.querySelector('#hotspot-label').hidden, 'Opening mobile exploration shows no ingredient names or old list');
+    assert(hotspotButtons().length >= 2 && ambient(visiblePlate()).playState === 'paused', 'Explore pauses the existing rotation and reveals hotspots');
+    assert(hotspotButtons().every(button => button.getBoundingClientRect().width >= 44 && button.getBoundingClientRect().height >= 44), 'Hotspots have 44px invisible targets');
+    hotspotButtons()[0].click();
+    assert(doc.querySelector('#hotspot-label').textContent === hotspotButtons()[0].getAttribute('aria-label'), 'A hotspot reveals its matching ingredient');
+    assert(doc.querySelector('#hotspot-label').getBoundingClientRect().bottom <= doc.querySelector('.arrow-controls').getBoundingClientRect().top, 'The ingredient label stays above the existing navigation controls');
+    hotspotButtons()[1].click();
+    assert(doc.querySelector('#hotspot-label').textContent === hotspotButtons()[1].getAttribute('aria-label') && doc.querySelectorAll('.ingredient-hotspot[aria-pressed="true"]').length === 1, 'Selecting another hotspot replaces the single label');
+    hotspotButtons()[1].click();
+    assert(doc.querySelector('#hotspot-label').hidden && doc.querySelectorAll('.ingredient-hotspot[aria-pressed="true"]').length === 0, 'Tapping the active hotspot deselects it');
+    const stageRect = stage.getBoundingClientRect();
+    hotspotButtons()[2].dispatchEvent(new win.MouseEvent('click', { detail: 1, bubbles: true, clientX: stageRect.left + parseFloat(hotspotButtons()[1].style.left), clientY: stageRect.top + parseFloat(hotspotButtons()[1].style.top) }));
+    assert(doc.querySelector('#hotspot-label').textContent === hotspotButtons()[1].getAttribute('aria-label'), 'Overlapping touch targets choose the nearest visible marker');
+    swipe(230, 190);
+    await sleep(100);
+    assert(doc.querySelector('#dish-number').textContent === '05', 'Plate gestures are suppressed only while hotspot exploration is open');
+    doc.querySelector('#ingredients-toggle').click();
+    assert(ambient(visiblePlate()).playState === 'running' && doc.querySelector('.mobile-ingredient-hotspots').inert, 'Closing hides hotspot controls and resumes rotation');
+    // Independent trigonometry validates the reviewed anchors at three widths
+    // and paused angles, including a photograph with non-square contain-fit.
+    await select(6);
+    for (const width of [360, 390, 430]) {
+      frame.width = String(width); await sleep(60);
+      for (const time of [0, 7500, 13750]) {
+        rotation = ambient(visiblePlate()); rotation.currentTime = time;
+        const priorTime = rotation.currentTime;
+        doc.querySelector('#ingredients-toggle').click();
+        await until(() => doc.querySelector('.mobile-ingredient-hotspots').classList.contains('is-visible'), 'Hotspots did not align');
+        const image = visiblePlate();
+        const w = stage.clientWidth, h = stage.clientHeight;
+        const fit = Math.min(w / image.naturalWidth, h / image.naturalHeight);
+        const wrapper = new win.DOMMatrix(win.getComputedStyle(image.closest('.plate-slot')).transform);
+        const angle = Math.atan2(wrapper.b, wrapper.a) + rotation.currentTime / 30000 * Math.PI * 2;
+        assert(hotspotButtons().every(button => {
+          const dx = (Number(button.dataset.sourceX) / 100 - .5) * image.naturalWidth * fit;
+          const dy = (Number(button.dataset.sourceY) / 100 - .5) * image.naturalHeight * fit;
+          return Math.abs(parseFloat(button.style.left) - (w / 2 + dx * Math.cos(angle) - dy * Math.sin(angle))) < .2 && Math.abs(parseFloat(button.style.top) - (h / 2 + dx * Math.sin(angle) + dy * Math.cos(angle))) < .2;
+        }), `Hotspots align at ${width}px and paused time ${time}ms`);
+        assert(Math.abs(rotation.currentTime - priorTime) < 50, 'Exploration preserves the existing angle instead of snapping to zero');
+        const pausedTime = rotation.currentTime; await sleep(50);
+        assert(rotation.currentTime === pausedTime, 'Exploration keeps the plate stationary');
+        doc.querySelector('#ingredients-toggle').click(); await sleep(50);
+        assert(rotation.currentTime >= pausedTime && rotation.currentTime - pausedTime < 100, 'Closing resumes from the preserved animation time');
+      }
+    }
+    doc.querySelector('#ingredients-toggle').click();
+    await until(() => doc.querySelector('.mobile-ingredient-hotspots').classList.contains('is-visible'), 'Exploration failed to reopen');
+    hotspotButtons()[0].click();
+    const oldWidth = stage.clientWidth;
+    const oldPoint = { x: parseFloat(hotspotButtons()[0].style.left), y: parseFloat(hotspotButtons()[0].style.top) };
+    const selectedName = doc.querySelector('#hotspot-label').textContent;
+    frame.width = '360'; await sleep(100);
+    const ratio = stage.clientWidth / oldWidth;
+    assert(Math.abs(parseFloat(hotspotButtons()[0].style.left) - oldPoint.x * ratio) < .2 && Math.abs(parseFloat(hotspotButtons()[0].style.top) - oldPoint.y * ratio) < .2 && doc.querySelector('#hotspot-label').textContent === selectedName, 'Resizing open exploration realigns markers and retains the selected label');
+    doc.querySelector('#next').click();
+    await until(() => doc.querySelector('#dish-number').textContent === '08' && settled(), 'Arrow navigation failed during exploration');
+    assert(doc.querySelector('.mobile-ingredient-hotspots').inert && doc.querySelector('#hotspot-label').hidden && doc.querySelector('#ingredients-toggle').getAttribute('aria-expanded') === 'false', 'Existing navigation automatically clears hotspots and label');
+    // Validate rotated SVG geometry independently with trigonometry. Check a
+    // rolled, non-square original photograph as well as the first circular one.
+    frame.width = '1440'; await sleep(80);
+    stage.dispatchEvent(new win.PointerEvent('pointermove', { pointerType: 'mouse' }));
+    stage.dispatchEvent(new win.PointerEvent('pointerleave', { pointerType: 'mouse' }));
+    assert(!doc.body.classList.contains('mobile-ingredients'), 'Mouse-capable desktop retains its original ingredient mode');
+    for (const index of [0, 6, 8]) {
+      await select(index);
+      rotation = ambient(visiblePlate());
+      rotation.currentTime = 7500;
+      doc.querySelector('#ingredients-toggle').click();
+      await until(() => doc.querySelectorAll('.ingredient-anchor').length > 0 && doc.querySelector('.ingredient-layer').classList.contains('is-visible'), 'Annotations did not render');
+      const image = visiblePlate();
+      const width = stage.clientWidth, height = stage.clientHeight;
+      const fitScale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const wrapper = new win.DOMMatrix(win.getComputedStyle(image.closest('.plate-slot')).transform);
+      const angle = Math.atan2(wrapper.b, wrapper.a) + rotation.currentTime / 30000 * 2 * Math.PI;
+      const aligned = [...doc.querySelectorAll('.ingredient-anchor')].every(circle => {
+        const dx = (Number(circle.dataset.sourceX) / 100 - .5) * image.naturalWidth * fitScale;
+        const dy = (Number(circle.dataset.sourceY) / 100 - .5) * image.naturalHeight * fitScale;
+        const expectedX = width / 2 + dx * Math.cos(angle) - dy * Math.sin(angle);
+        const expectedY = height / 2 + dx * Math.sin(angle) + dy * Math.cos(angle);
+        return Math.abs(Number(circle.getAttribute('cx')) - expectedX) < .2 && Math.abs(Number(circle.getAttribute('cy')) - expectedY) < .2;
+      });
+      assert(aligned, `Dish ${index + 1} connectors follow its paused angle, rolled wrapper and contain-fit bounds`);
+      const frozen = rotation.currentTime; await sleep(80);
+      assert(rotation.currentTime === frozen, 'Annotations keep the exact paused orientation');
+      doc.querySelector('#ingredients-toggle').click();
+      assert(ambient(visiblePlate()).playState === 'running', 'Annotation dismissal resumes the existing rotation');
+    }
+    // A hybrid tablet switches only its ingredient presentation, based on the
+    // pointer actually used. It never shows SVG callouts and hotspots together.
+    stage.dispatchEvent(new win.PointerEvent('pointermove', { pointerType: 'mouse' }));
+    await until(() => doc.querySelector('.ingredient-layer').classList.contains('is-visible'), 'Desktop hover failed before touch switch');
+    stage.dispatchEvent(new win.PointerEvent('pointerdown', { pointerType: 'touch', pointerId: 1000, clientX: 200, clientY: 200, bubbles: true }));
+    stage.dispatchEvent(new win.PointerEvent('pointerup', { pointerType: 'touch', pointerId: 1000, clientX: 200, clientY: 200, bubbles: true }));
+    assert(ambient(visiblePlate()).playState === 'running', 'Switching from desktop hover to touch resumes ambient rotation until Explore is tapped');
+    doc.querySelector('#ingredients-toggle').click();
+    await until(() => doc.querySelector('.mobile-ingredient-hotspots').classList.contains('is-visible'), 'Hybrid touch mode failed');
+    assert(doc.body.classList.contains('mobile-ingredients') && doc.querySelector('#ingredient-panel').hidden && !doc.querySelector('.ingredient-layer').classList.contains('is-visible'), 'Hybrid tablet touch shows only hotspots');
+    hotspotButtons()[0].click();
+    assert(doc.querySelector('#hotspot-label').getBoundingClientRect().bottom <= doc.querySelector('.arrow-controls').getBoundingClientRect().top, 'Wide touch layouts keep the single label clear of arrow controls');
+    stage.dispatchEvent(new win.PointerEvent('pointermove', { pointerType: 'mouse' }));
+    await until(() => doc.querySelector('.ingredient-layer').classList.contains('is-visible'), 'Hybrid mouse mode failed');
+    assert(!doc.body.classList.contains('mobile-ingredients') && doc.querySelector('.mobile-ingredient-hotspots').inert, 'Hybrid mouse input restores only original desktop annotations');
+    stage.dispatchEvent(new win.PointerEvent('pointerleave', { pointerType: 'mouse' }));
+    const hasEmoji = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\uFE0F\u200D\u20E3]/u;
+    assert(!hasEmoji.test(doc.body.textContent) && [...doc.querySelectorAll('[aria-label]')].every(node => !hasEmoji.test(node.getAttribute('aria-label'))), 'Rendered interface and accessibility labels contain no emoji');
+    frame.width = '390'; await sleep(80);
+    await select(4);
+    win.setTestReducedMotion(true);
+    assert(ambient(visiblePlate()).playState === 'paused', 'Reduced-motion preference pauses ambient rotation');
+    await select(4);
+    assert(!stage.classList.contains('is-transitioning') && ambient(visiblePlate()).playState === 'paused', 'Reduced-motion navigation settles without rolling');
+    win.setTestReducedMotion(false);
+    doc.querySelector('#next').click();
+    await until(() => main.hasAttribute('aria-busy'), 'Rolling did not start');
+    await sleep(240);
+    const rollingSlots = [...doc.querySelectorAll('.plate-slot')].filter(slot => !slot.hidden);
+    assert(rollingSlots.length === 2 && rollingSlots.every(slot => win.getComputedStyle(slot).opacity === '1'), 'Rolling photographs remain opaque instead of crossfading');
+    assert(rollingSlots.some(slot => new win.DOMMatrix(win.getComputedStyle(slot).transform).m41 < 0) && rollingSlots.some(slot => new win.DOMMatrix(win.getComputedStyle(slot).transform).m41 > 0), 'Outgoing and incoming plates travel on opposite sides');
+    win.setTestReducedMotion(true);
+    await until(() => doc.querySelector('#dish-number').textContent === '06' && settled(), 'Preference change interrupted cleanup');
+    assert(ambient(visiblePlate()).playState === 'paused', 'Preference change mid-roll cleans up and pauses');
+    win.setTestReducedMotion(false);
+    assert(ambient(visiblePlate()).playState === 'running', 'Disabling reduced motion resumes ambient rotation');
+    output.textContent += '\nAll regression checks passed.';
+  } catch (error) {
+    output.textContent += `\nFAIL ${error.message}`;
+  } finally {
+    event.target.disabled = false;
+  }
+};
+</script>
+</html>

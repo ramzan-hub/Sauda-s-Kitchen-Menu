@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d0d0b">
+  <meta name="description" content="Sauda's Kitchen — Indian and Kerala cuisine. Home delivery only. Explore our ten-dish menu and contact us.">
+  <title>Sauda's Kitchen — Indian & Kerala Menu</title>
+  <link rel="preload" href="images/chicken-biryani.png" as="image" media="(min-width: 901px)" fetchpriority="high">
+  <link rel="preload" href="assets/display/chicken-biryani.webp" as="image" media="(max-width: 900px)" fetchpriority="high">
+  <link rel="stylesheet" href="styles.css">
+  <script src="menu.js" defer></script>
+</head>
+<body>
+  <header class="header">
+    <a class="wordmark" href="./" aria-label="Sauda's Kitchen menu home"><svg aria-hidden="true" viewBox="0 0 28 28"><path d="M14 3v22M3 14h22M6 6l16 16M6 22 22 6"/></svg>Sauda's Kitchen</a>
+    <span class="header-menu">MENU</span>
+    <div class="header-actions"><span class="delivery-notice">HOME DELIVERY ONLY</span><button class="contact-trigger" id="contact-open" aria-haspopup="dialog" aria-controls="contact-dialog">CONTACT <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></svg></button></div>
+  </header>
+  <p class="mobile-delivery"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 5h11v12H3zM14 9h4l3 4v4h-7M4 17h16"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg> HOME DELIVERY ONLY</p>
+
+  <main class="menu-experience" aria-label="Sauda's Kitchen menu">
+    <section class="dish-info" aria-labelledby="dish-name">
+      <div class="dish-count"><span id="dish-number">01</span><span class="count-line"></span><span>10</span></div>
+      <div class="dish-copy">
+        <p class="eyebrow" id="dish-category">SIGNATURE</p>
+        <h1 id="dish-name">Chicken Biryani</h1>
+        <p class="description" id="dish-description">Fragrant basmati rice layered with tender spiced chicken, aromatic herbs, and warming spices.</p>
+        <p class="price"><span id="dish-price">22</span><span class="currency">SAR</span></p>
+      </div>
+      <p class="explore-hint"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v17m-6-6 6 6 6-6"/></svg><span class="desktop-hint">SCROLL TO EXPLORE</span><span class="mobile-hint">SWIPE TO EXPLORE</span></p>
+    </section>
+
+    <section class="hero" aria-label="Selected dish photograph">
+      <p class="hero-caption">A TASTE OF TRADITION</p>
+      <div class="plate-stage" id="plate-stage">
+        <div class="plate-slot" id="plate-a"><picture><source media="(max-width: 900px)" srcset="assets/display/chicken-biryani.webp"><img class="plate-image" src="images/chicken-biryani.png" alt="Chicken Biryani" width="1254" height="1254" fetchpriority="high" draggable="false"></picture></div>
+        <div class="plate-slot" id="plate-b" hidden><picture><source media="(max-width: 900px)"><img class="plate-image" alt="" width="1254" height="1254" draggable="false"></picture></div>
+        <div class="ingredient-layer" id="ingredient-layer" data-dish-index="0" aria-hidden="true"></div>
+        <div class="ingredient-panel" id="ingredient-panel" hidden><p class="ingredient-panel-heading">VISIBLE COMPONENTS</p><ul id="ingredient-list"></ul></div>
+        <div class="mobile-ingredient-hotspots" id="mobile-ingredient-hotspots" role="group" aria-label="Ingredient hotspots" aria-hidden="true" inert></div>
+        <p class="hotspot-label" id="hotspot-label" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+      </div>
+      <div class="hero-bottom">
+        <div class="arrow-controls" aria-label="Browse dishes">
+          <button id="previous" class="arrow-button" aria-label="Previous dish"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></button>
+          <span class="control-divider" aria-hidden="true"></span>
+          <button id="next" class="arrow-button" aria-label="Next dish"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6M16 12H4"/></svg></button>
+        </div>
+        <p class="plate-note">TEN DISHES. MANY TRADITIONS.</p>
+        <button class="ingredients-toggle" id="ingredients-toggle" aria-expanded="false" aria-controls="ingredient-panel">EXPLORE INGREDIENTS</button>
+      </div>
+    </section>
+
+    <nav class="dish-navigation" aria-label="All dishes">
+      <div class="nav-heading"><span>THE MENU</span><span>01 / 10</span></div>
+      <ol class="dish-list" id="dish-list"></ol>
+    </nav>
+    <p class="sr-only" role="status" aria-live="polite" id="dish-status"></p>
+  </main>
+
+  <footer class="footer" aria-label="Cuisine traditions">
+    <div class="footer-track" aria-hidden="true"><span>SAUDA'S KITCHEN</span><i></i><span>INDIAN & KERALA CUISINE</span><i></i><span>HOME DELIVERY ONLY</span><i></i><span>THE WARMTH OF SPICE</span><i></i><span>A TASTE OF TRADITION</span><i></i></div>
+  </footer>
+  <dialog id="contact-dialog" class="contact-dialog" aria-labelledby="contact-title" aria-describedby="contact-delivery">
+    <div class="contact-topline"><span>SAUDA'S KITCHEN</span><button id="contact-close" class="arrow-button" aria-label="Close contact panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+    <p class="eyebrow">GET IN TOUCH</p>
+    <h2 id="contact-title">A taste of home.</h2>
+    <p id="contact-delivery" class="contact-delivery">HOME DELIVERY ONLY</p>
+    <div class="contact-details">
+      <div><p class="contact-label">PHONE</p><a href="tel:+966577293957">+966577293957</a><a href="tel:+966564140843">+966564140843</a></div>
+      <div><p class="contact-label">EMAIL</p><a class="contact-email" href="mailto:mohideenramzanmanaf@gmail.com">mohideenramzanmanaf@gmail.com</a></div>
+    </div>
+  </dialog>
+  <noscript><p class="noscript">Enable JavaScript to explore all ten dishes.</p></noscript>
+</body>
+</html>
